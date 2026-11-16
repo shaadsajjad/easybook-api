@@ -32,10 +32,17 @@ function toResponse(error: unknown): { status: number; body: ErrorBody } {
   }
 
   if (error instanceof ZodError) {
-    const errors = error.issues.map((issue) => ({
-      field: issue.path.map(String).join(".") || "body",
-      message: issue.message,
-    }));
+    const errors = error.issues.flatMap((issue): FieldError[] => {
+      const prefix = issue.path.map(String).join(".");
+      // Unknown fields in a strict object: report each one under its own name.
+      if (issue.code === "unrecognized_keys") {
+        return issue.keys.map((key) => ({
+          field: prefix ? `${prefix}.${key}` : key,
+          message: "This field is not allowed",
+        }));
+      }
+      return [{ field: prefix || "body", message: issue.message }];
+    });
     return { status: 422, body: { success: false, message: "Validation failed", errors } };
   }
 

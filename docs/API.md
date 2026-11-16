@@ -1,6 +1,6 @@
 # EasyBook API: Frontend Guide
 
-> **Status:** sections 1–7 are written (Step 2). Endpoint sections are added as each module ships.
+> **Status:** auth and profile endpoints are live. Services, appointments and AI endpoints are added as each module ships.
 > Anything marked _(coming in Step N)_ is not built yet, so don't code against it until it appears in the [Changelog](#12-changelog).
 
 ---
@@ -26,7 +26,7 @@ This API handles accounts, the service catalogue, available time slots, appointm
 
 ## 3. Quick start
 
-**1. Create an account** _(endpoint lands in Step 5)_
+**1. Create an account**
 
 ```bash
 curl -X POST http://localhost:4000/api/v1/auth/register \
@@ -253,7 +253,257 @@ Checks the server is running. Also useful for waking the server on the splash sc
 
 **Frontend notes:** call this with a long timeout (60s) on app start to wake the production server.
 
-_Other endpoints are added in Steps 5–9._
+### POST /auth/register
+
+Creates a new account and logs the user in right away.
+
+**Auth required:** No (rate limited: 20 requests per 15 minutes)
+
+**Body**
+
+| Field | Type | Required | Rules / example |
+|---|---|---|---|
+| `name` | string | Yes | 2–100 characters, trimmed. `"Ayesha Rahman"` |
+| `email` | string | Yes | Valid email, max 254. Stored in lowercase, so `Ayesha@Example.com` becomes `ayesha@example.com` |
+| `password` | string | Yes | 8–72 characters, with **at least one letter and one number**. `"Secret123"` |
+
+**Success: 201**
+
+```json
+{
+  "success": true,
+  "data": {
+    "user": {
+      "id": "bc3101b4-c476-434a-b6a2-5163af163feb",
+      "name": "Ayesha Rahman",
+      "email": "ayesha.docs@example.com",
+      "phone": null,
+      "createdAt": "2026-11-16T15:22:46.585Z",
+      "updatedAt": "2026-11-16T15:22:46.585Z"
+    },
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjE3OTQ4NDI1NjYs...(shortened)"
+  },
+  "message": "Account created"
+}
+```
+
+**Errors**
+
+409: email already registered (letter case is ignored):
+```json
+{ "success": false, "message": "An account with this email already exists" }
+```
+
+422: validation failed. A field can appear more than once if it breaks several rules:
+```json
+{
+  "success": false,
+  "message": "Validation failed",
+  "errors": [
+    { "field": "name", "message": "Name must be at least 2 characters" },
+    { "field": "email", "message": "Enter a valid email address" },
+    { "field": "password", "message": "Password must be at least 8 characters" },
+    { "field": "password", "message": "Password must contain at least one number" }
+  ]
+}
+```
+
+When a field is missing, the messages are `"Name is required"`, `"Email is required"` and `"Password is required"`.
+
+**Tested scenarios**
+- [x] creates an account and returns the user and a token
+- [x] returns a token that works on protected routes
+- [x] stores the email trimmed and in lowercase
+- [x] stores a bcrypt hash, never the plain password
+- [x] never includes the password or its hash in the response
+- [x] returns 409 when the email is already registered, ignoring letter case
+- [x] returns 422 with an error for each missing field
+- [x] returns 422 when the email is invalid
+- [x] returns 422 when the password is shorter than 8 characters
+- [x] returns 422 when the password has no number
+- [x] returns 422 when the password has no letter
+- [x] returns 422 when the name is too short
+
+**Frontend notes:** apply the same password rules in the form so users get instant feedback. Save `data.token` and go straight to Home, without asking the user to log in again.
+
+---
+
+### POST /auth/login
+
+Logs in with email and password.
+
+**Auth required:** No (rate limited: 20 requests per 15 minutes)
+
+**Body**
+
+| Field | Type | Required | Rules / example |
+|---|---|---|---|
+| `email` | string | Yes | Any letter case. `"demo@example.com"` |
+| `password` | string | Yes | `"Demo1234"` |
+
+**Success: 200**
+
+```json
+{
+  "success": true,
+  "data": {
+    "user": {
+      "id": "1dd058fe-a3f7-4a74-8d13-d82c020f1de5",
+      "name": "Demo User",
+      "email": "demo@example.com",
+      "phone": "+8801700000000",
+      "createdAt": "2026-11-16T15:12:36.469Z",
+      "updatedAt": "2026-11-16T15:12:41.547Z"
+    },
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjE3OTQ4NDI1Njcs...(shortened)"
+  },
+  "message": "Logged in"
+}
+```
+
+**Errors**
+
+401: wrong password **or** unknown email. The message is the same on purpose, for security:
+```json
+{ "success": false, "message": "Invalid email or password" }
+```
+
+422: missing fields:
+```json
+{
+  "success": false,
+  "message": "Validation failed",
+  "errors": [
+    { "field": "email", "message": "Email is required" },
+    { "field": "password", "message": "Password is required" }
+  ]
+}
+```
+
+429: too many attempts:
+```json
+{ "success": false, "message": "Too many login attempts. Please try again in 15 minutes." }
+```
+
+**Tested scenarios**
+- [x] returns the user and a token for the correct email and password
+- [x] accepts the email in any letter case
+- [x] never includes the password or its hash in the response
+- [x] returns 401 with a generic message when the password is wrong
+- [x] returns the same 401 message when the email does not exist
+- [x] returns 422 with an error for each missing field
+- [x] returns 422 when the email is invalid
+
+**Frontend notes:** on 401 here, show `message` on the login form. Don't treat it as an expired session. **Logout** has no endpoint, because tokens are stateless: delete the stored token on the device.
+
+---
+
+### GET /users/me
+
+Returns the logged-in user's profile. Use it on app start to check that a stored token still works.
+
+**Auth required:** Yes
+
+**Success: 200**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "bc3101b4-c476-434a-b6a2-5163af163feb",
+    "name": "Ayesha Rahman",
+    "email": "ayesha.docs@example.com",
+    "phone": null,
+    "createdAt": "2026-11-16T15:22:46.585Z",
+    "updatedAt": "2026-11-16T15:22:46.585Z"
+  }
+}
+```
+
+**Errors:** 401 (see [Authentication](#4-authentication)). If the account was deleted, the message is:
+```json
+{ "success": false, "message": "Account not found. Please log in again." }
+```
+
+**Tested scenarios**
+- [x] returns the logged-in user's profile
+- [x] never includes the password hash
+- [x] returns 401 when no token is sent
+- [x] returns 401 when the token is malformed
+- [x] returns 401 when the token is expired
+- [x] returns 401 when the account behind a valid token no longer exists
+
+**Frontend notes:** on splash, if a token is stored, call this. 200 goes to Home; 401 clears the token and goes to Login. This gives you the persistent session.
+
+---
+
+### PATCH /users/me
+
+Updates the profile. Only `name` and `phone` can change. **The email cannot be changed.**
+
+**Auth required:** Yes
+
+**Body** (send at least one field)
+
+| Field | Type | Required | Rules / example |
+|---|---|---|---|
+| `name` | string | No | 2–100 characters, trimmed. `"Ayesha R."` |
+| `phone` | string \| null | No | 7–20 digits, may start with `+`, spaces and dashes allowed. `"+8801712345678"`. Send `null` to remove it |
+
+Any other field (including `email`) is rejected with 422.
+
+**Success: 200**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "bc3101b4-c476-434a-b6a2-5163af163feb",
+    "name": "Ayesha R.",
+    "email": "ayesha.docs@example.com",
+    "phone": "+8801712345678",
+    "createdAt": "2026-11-16T15:22:46.585Z",
+    "updatedAt": "2026-11-16T15:22:48.638Z"
+  },
+  "message": "Profile updated"
+}
+```
+
+**Errors**
+
+422: trying to change the email:
+```json
+{ "success": false, "message": "Validation failed", "errors": [{ "field": "email", "message": "Email cannot be changed" }] }
+```
+
+422: empty body:
+```json
+{ "success": false, "message": "Validation failed", "errors": [{ "field": "body", "message": "Send at least one of: name, phone" }] }
+```
+
+422: an unknown field, for example `passwordHash`, gives `{ "field": "passwordHash", "message": "This field is not allowed" }`.
+
+401: see [Authentication](#4-authentication).
+
+**Tested scenarios**
+- [x] updates the name and phone and returns the updated profile
+- [x] updates only the fields that are sent
+- [x] clears the phone number when phone is null
+- [x] returns 422 and keeps the email unchanged when trying to change the email
+- [x] returns 422 for fields that are not allowed, such as passwordHash
+- [x] returns 422 when the body is empty
+- [x] returns 422 when the name is too short
+- [x] returns 422 when the phone number is invalid
+- [x] returns 401 when no token is sent
+- [x] returns 401 when the token is malformed
+- [x] returns 401 when the token is expired
+- [x] returns 401 when the account behind a valid token no longer exists
+
+**Frontend notes:** show the email as read-only on the profile screen. Replace the cached user with `data` from the response.
+
+---
+
+_Services, appointments and AI endpoints are added in Steps 6–8._
 
 ---
 
@@ -288,8 +538,14 @@ The seed also creates **10 services in 4 categories** (Hair & Beauty, Wellness, 
 | Shared middleware (validation, auth token, rate limit) | 8 | ✅ passing |
 | Time-zone helpers | 6 | ✅ passing |
 | Database double-booking constraint | 5 | ✅ passing |
+| POST /auth/register | 12 | ✅ passing |
+| POST /auth/login | 7 | ✅ passing |
+| GET /users/me | 6 | ✅ passing |
+| PATCH /users/me | 12 | ✅ passing |
+| **Total** | **61** | ✅ **all passing** |
 
 ## 12. Changelog
 
+- **2026-11-16:** Added `POST /auth/register`, `POST /auth/login`, `GET /users/me` and `PATCH /users/me`. Unknown body fields now return 422 with `"This field is not allowed"`.
 - **2026-11-16:** Database and demo data. The seed adds 10 services and a demo user (see Demo credentials). Prices are in BDT. No endpoint changes.
 - **2026-11-16:** First version. `GET /health`, response and error conventions, and the booking flow outline.
