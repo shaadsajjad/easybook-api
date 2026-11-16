@@ -2,7 +2,7 @@ import request from "supertest";
 import { beforeEach, describe, expect, it } from "vitest";
 import { app } from "../../app";
 import { prisma } from "../../config/prisma";
-import { bearer, createUser, expiredTokenFor, resetDatabase } from "../../tests/helpers";
+import { bearer, createUser, itRejectsUnauthenticatedRequests, resetDatabase } from "../../tests/helpers";
 
 beforeEach(resetDatabase);
 
@@ -15,27 +15,8 @@ const publicUserShape = {
   updatedAt: expect.any(String),
 };
 
-// The same three 401 cases apply to every protected endpoint.
-function describeAuthErrors(send: (authorization?: string) => request.Test): void {
-  it("returns 401 when no token is sent", async () => {
-    const res = await send();
-    expect(res.status).toBe(401);
-    expect(res.body).toEqual({ success: false, message: "Authentication required. Please log in." });
-  });
-
-  it("returns 401 when the token is malformed", async () => {
-    const res = await send("Bearer not-a-real-token");
-    expect(res.status).toBe(401);
-    expect(res.body).toEqual({ success: false, message: "Invalid token. Please log in again." });
-  });
-
-  it("returns 401 when the token is expired", async () => {
-    const user = await createUser();
-    const res = await send(`Bearer ${expiredTokenFor(user.id)}`);
-    expect(res.status).toBe(401);
-    expect(res.body).toEqual({ success: false, message: "Your session has expired. Please log in again." });
-  });
-
+// Users-specific extra 401 case: a valid token whose account was deleted.
+function itRejectsDeletedAccounts(send: (authorization?: string) => request.Test): void {
   it("returns 401 when the account behind a valid token no longer exists", async () => {
     const user = await createUser();
     await prisma.user.delete({ where: { id: user.id } });
@@ -64,10 +45,12 @@ describe("GET /api/v1/users/me", () => {
     expect(JSON.stringify(res.body)).not.toMatch(/password/i);
   });
 
-  describeAuthErrors((authorization) => {
+  const getMe = (authorization?: string): request.Test => {
     const req = request(app).get("/api/v1/users/me");
     return authorization ? req.set("Authorization", authorization) : req;
-  });
+  };
+  itRejectsUnauthenticatedRequests(getMe);
+  itRejectsDeletedAccounts(getMe);
 });
 
 describe("PATCH /api/v1/users/me", () => {
@@ -150,5 +133,6 @@ describe("PATCH /api/v1/users/me", () => {
     ]);
   });
 
-  describeAuthErrors((authorization) => patch(authorization, { name: "Sam" }));
+  itRejectsUnauthenticatedRequests((authorization) => patch(authorization, { name: "Sam" }));
+  itRejectsDeletedAccounts((authorization) => patch(authorization, { name: "Sam" }));
 });

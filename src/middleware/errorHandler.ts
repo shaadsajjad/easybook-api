@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { ZodError } from "zod";
 import { env } from "../config/env";
 import { ApiError, type FieldError } from "../utils/ApiError";
+import { isSlotOverlapError, SLOT_TAKEN_MESSAGE } from "../utils/prismaErrors";
 
 interface ErrorBody {
   success: false;
@@ -53,6 +54,11 @@ function toResponse(error: unknown): { status: number; body: ErrorBody } {
     if (error.code === "P2025") {
       return { status: 404, body: { success: false, message: "Resource not found" } };
     }
+  }
+
+  // Safety net: the appointments service already converts this, but never let it become a 500.
+  if (isSlotOverlapError(error)) {
+    return { status: 409, body: { success: false, message: SLOT_TAKEN_MESSAGE } };
   }
 
   if (isBodyParserError(error)) {

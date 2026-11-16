@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { authLimiter } from "./middleware/rateLimiters";
+import appointmentsRoutes from "./modules/appointments/appointments.routes";
 import authRoutes from "./modules/auth/auth.routes";
 import healthRoutes from "./modules/health/health.routes";
 import servicesRoutes from "./modules/services/services.routes";
@@ -12,5 +13,6 @@ router.use("/health", healthRoutes);
 router.use("/auth", authLimiter, authRoutes);
 router.use("/users", usersRoutes);
 router.use("/services", servicesRoutes);
+router.use("/appointments", appointmentsRoutes);
 
 export default router;
