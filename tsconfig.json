@@ -4,8 +4,6 @@
     "lib": ["ES2022"],
     "module": "commonjs",
     "moduleResolution": "node",
-    "rootDir": "src",
-    "outDir": "dist",
     "strict": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
@@ -15,7 +13,9 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": ["node"],
+    "noEmit": true
   },
-  "include": ["src/**/*.ts"]
+  // Type-check the app, the tests and the seed script.
+  "include": ["src/**/*.ts", "prisma/seed.ts"]
 }

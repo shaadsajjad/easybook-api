@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import dotenv from "dotenv";
+import { afterAll } from "vitest";
 
 // Runs before every test file (vitest setupFiles), BEFORE the app or env.ts is imported.
 // Tests delete data, so we refuse to run unless we are certain this is a separate test database.
@@ -26,3 +27,10 @@ if (fs.existsSync(devEnvPath)) {
     }
   }
 }
+
+// Close the DB pool after each test file so the run exits cleanly.
+// Imported lazily so the checks above always run before any database code loads.
+afterAll(async () => {
+  const { prisma } = await import("../config/prisma");
+  await prisma.$disconnect();
+});
