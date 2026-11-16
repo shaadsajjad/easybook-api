@@ -76,7 +76,8 @@ function toResponse(error: unknown): { status: number; body: ErrorBody } {
 export const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
   const { status, body } = toResponse(error);
   // Log unexpected errors on the server only (the client gets a generic message).
-  if (status >= 500 && env.NODE_ENV !== "test") {
+  // (ApiErrors are expected, e.g. "AI provider unavailable", so they are not logged as crashes.)
+  if (status >= 500 && !(error instanceof ApiError) && env.NODE_ENV !== "test") {
     console.error(error);
   }
   res.status(status).json(body);
