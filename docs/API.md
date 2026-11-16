@@ -1,6 +1,6 @@
 # EasyBook API: Frontend Guide
 
-> **Status:** auth and profile endpoints are live. Services, appointments and AI endpoints are added as each module ships.
+> **Status:** health, auth, profile and services endpoints are live. Appointments and AI endpoints are added as each module ships.
 > Anything marked _(coming in Step N)_ is not built yet, so don't code against it until it appears in the [Changelog](#12-changelog).
 
 ---
@@ -43,7 +43,7 @@ curl http://localhost:4000/api/v1/users/me \
   -H "Authorization: Bearer <token>"
 ```
 
-**3. Fetch services** (public, no token needed) _(endpoint lands in Step 6)_
+**3. Fetch services** (public, no token needed)
 
 ```bash
 curl "http://localhost:4000/api/v1/services?featured=true"
@@ -130,12 +130,12 @@ Real 422 example:
 }
 ```
 
-### Pagination _(used by `GET /services`, Step 6)_
+### Pagination (used by `GET /services`)
 
 Send `?page=1&limit=20`. The default is page 1 with 20 items, and `limit` can be at most 50. List responses include:
 
 ```json
-"meta": { "page": 1, "limit": 20, "total": 9, "totalPages": 1 }
+"meta": { "page": 1, "limit": 20, "total": 10, "totalPages": 1 }
 ```
 
 ### Dates and times: always UTC
@@ -211,7 +211,7 @@ Real examples:
 
 ## 7. Booking flow guide
 
-The screens and calls, in order. _(Endpoints land in Steps 6 and 7.)_
+The screens and calls, in order. _(Steps 1–4 are live. The appointment endpoints in steps 5–8 land in Step 7.)_
 
 1. **Home / service list:** `GET /services` (with `search`, `category`, `featured`, `minPrice`, `maxPrice`, `page`). Use `GET /services/categories` for filter chips.
 2. **Service detail:** `GET /services/:id`.
@@ -503,7 +503,250 @@ Any other field (including `email`) is rejected with 422.
 
 ---
 
-_Services, appointments and AI endpoints are added in Steps 6–8._
+### GET /services
+
+Lists active services, with search, filters and pagination. **Featured services come first**, then the rest in alphabetical order.
+
+**Auth required:** No
+
+**Query parameters** (all optional; combine them freely)
+
+| Param | Type | Rules / example |
+|---|---|---|
+| `search` | string | Matches the **name or description**, ignoring letter case. Max 100. `?search=massage` |
+| `category` | string | Exact category name, ignoring letter case. `?category=Wellness` (get the list from `/services/categories`) |
+| `featured` | `true` \| `false` | `?featured=true` returns only featured services |
+| `minPrice` | number | ≥ 0, inclusive. `?minPrice=500` |
+| `maxPrice` | number | ≥ 0, inclusive, must be ≥ `minPrice`. `?maxPrice=2000` |
+| `page` | integer | ≥ 1, default `1` |
+| `limit` | integer | 1–50, default `20` |
+
+**Success: 200** (`GET /services?featured=true&limit=2`)
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "5e000000-0000-4000-8000-000000000001",
+      "name": "Classic Haircut",
+      "description": "A tailored haircut with wash, styling and a hot towel finish.",
+      "price": "500.00",
+      "durationMinutes": 30,
+      "imageUrl": "https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=800&q=80&auto=format&fit=crop",
+      "category": "Hair & Beauty",
+      "isFeatured": true,
+      "createdAt": "2026-11-16T15:12:33.721Z",
+      "updatedAt": "2026-11-16T15:12:38.784Z"
+    },
+    {
+      "id": "5e000000-0000-4000-8000-000000000004",
+      "name": "Full Body Massage",
+      "description": "A 60-minute Swedish massage to release tension and improve circulation.",
+      "price": "3000.00",
+      "durationMinutes": 60,
+      "imageUrl": "https://images.unsplash.com/photo-1544161515-4ab6ce6db874?w=800&q=80&auto=format&fit=crop",
+      "category": "Wellness",
+      "isFeatured": true,
+      "createdAt": "2026-11-16T15:12:34.525Z",
+      "updatedAt": "2026-11-16T15:12:39.585Z"
+    }
+  ],
+  "meta": { "page": 1, "limit": 2, "total": 4, "totalPages": 2 }
+}
+```
+
+No matches is **not** an error: you get `"data": []` and `"total": 0`.
+
+**Errors**
+
+422: invalid query values:
+```json
+{
+  "success": false,
+  "message": "Validation failed",
+  "errors": [
+    { "field": "featured", "message": "Must be \"true\" or \"false\"" },
+    { "field": "limit", "message": "Must be at most 50" }
+  ]
+}
+```
+
+Other 422 messages: `"Must be a number"` (a price), `"Must be 1 or more"` (page), and `"maxPrice must be greater than or equal to minPrice"`.
+
+**Tested scenarios**
+- [x] returns active services with pagination meta and price as a 2-decimal string
+- [x] lists featured services first, then by name
+- [x] hides inactive services
+- [x] searches the name case-insensitively
+- [x] searches the description too
+- [x] filters by category, ignoring letter case
+- [x] filters featured and non-featured services
+- [x] filters by an inclusive price range
+- [x] combines search, category and price filters
+- [x] paginates with page and limit and reports the totals in meta
+- [x] returns an empty list when nothing matches
+- [x] returns 422 when limit is above 50 or page is below 1
+- [x] returns 422 when featured is not true or false
+- [x] returns 422 when a price is not a number
+- [x] returns 422 when maxPrice is lower than minPrice
+
+**Frontend notes:**
+- For the home screen, use `?featured=true` for the "Featured" carousel and a plain `GET /services` for the full list.
+- Debounce the search box (about 300 ms).
+- For infinite scroll, load the next `page` while `page < totalPages`.
+- Show an empty state when `data` is `[]`.
+
+---
+
+### GET /services/categories
+
+The distinct categories of active services, in alphabetical order. Use them for filter chips.
+
+**Auth required:** No
+
+**Success: 200**
+
+```json
+{ "success": true, "data": ["Hair & Beauty", "Health", "Home Services", "Wellness"] }
+```
+
+**Tested scenarios**
+- [x] returns the distinct categories of active services in alphabetical order
+- [x] returns an empty list when there are no services
+
+**Frontend notes:** pass the chosen value as `?category=` exactly as received.
+
+---
+
+### GET /services/:id
+
+The full details of one service.
+
+**Auth required:** No
+
+**Path parameters:** `id` (uuid)
+
+**Success: 200**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "5e000000-0000-4000-8000-000000000004",
+    "name": "Full Body Massage",
+    "description": "A 60-minute Swedish massage to release tension and improve circulation.",
+    "price": "3000.00",
+    "durationMinutes": 60,
+    "imageUrl": "https://images.unsplash.com/photo-1544161515-4ab6ce6db874?w=800&q=80&auto=format&fit=crop",
+    "category": "Wellness",
+    "isFeatured": true,
+    "createdAt": "2026-11-16T15:12:34.525Z",
+    "updatedAt": "2026-11-16T15:12:39.585Z"
+  }
+}
+```
+
+**Errors**
+
+404: unknown id, a malformed id, or a service that is no longer offered:
+```json
+{ "success": false, "message": "Service not found" }
+```
+
+**Tested scenarios**
+- [x] returns the full service details
+- [x] returns 404 for an unknown id
+- [x] returns 404 for an id that is not a valid uuid
+- [x] returns 404 for an inactive service
+
+**Frontend notes:** show `durationMinutes` as "60 min" or "1 h". The Book button leads to the date picker and then availability.
+
+---
+
+### GET /services/:id/availability
+
+Every time slot of one day for this service, each marked `available: true` or `false`.
+
+**Auth required:** No
+
+**Path parameters:** `id` (uuid)
+
+**Query parameters**
+
+| Param | Type | Required | Rules / example |
+|---|---|---|---|
+| `date` | string | Yes | `YYYY-MM-DD`, a calendar date in the business time zone (Asia/Dhaka). `?date=2026-11-18` |
+
+How slots work:
+- Slots start every **30 minutes** from **09:00 to 17:30 Dhaka time**, which is 18 slots a day. `startTime` and `endTime` are **UTC**.
+- `endTime = startTime + durationMinutes`.
+- A slot is `available: false` when **any** of these is true:
+  - it has already started (or the date is in the past),
+  - the service would not finish by closing time (18:00),
+  - it overlaps an existing booking for this service. Cancelled bookings don't count.
+
+**Success: 200** (the Full Body Massage, 60 minutes, which has a booking at 11:00–12:00 Dhaka time. Slots 8–15 are left out here.)
+
+```json
+{
+  "success": true,
+  "data": {
+    "serviceId": "5e000000-0000-4000-8000-000000000004",
+    "date": "2026-11-18",
+    "timeZone": "Asia/Dhaka",
+    "durationMinutes": 60,
+    "slots": [
+      { "startTime": "2026-11-18T03:00:00.000Z", "endTime": "2026-11-18T04:00:00.000Z", "available": true },
+      { "startTime": "2026-11-18T03:30:00.000Z", "endTime": "2026-11-18T04:30:00.000Z", "available": true },
+      { "startTime": "2026-11-18T04:00:00.000Z", "endTime": "2026-11-18T05:00:00.000Z", "available": true },
+      { "startTime": "2026-11-18T04:30:00.000Z", "endTime": "2026-11-18T05:30:00.000Z", "available": false },
+      { "startTime": "2026-11-18T05:00:00.000Z", "endTime": "2026-11-18T06:00:00.000Z", "available": false },
+      { "startTime": "2026-11-18T05:30:00.000Z", "endTime": "2026-11-18T06:30:00.000Z", "available": false },
+      { "startTime": "2026-11-18T06:00:00.000Z", "endTime": "2026-11-18T07:00:00.000Z", "available": true },
+      "...",
+      { "startTime": "2026-11-18T10:30:00.000Z", "endTime": "2026-11-18T11:30:00.000Z", "available": true },
+      { "startTime": "2026-11-18T11:00:00.000Z", "endTime": "2026-11-18T12:00:00.000Z", "available": true },
+      { "startTime": "2026-11-18T11:30:00.000Z", "endTime": "2026-11-18T12:30:00.000Z", "available": false }
+    ]
+  }
+}
+```
+
+Reading the example: `03:00Z` is 09:00 in Dhaka. The 10:30, 11:00 and 11:30 slots (Dhaka) overlap the 11:00–12:00 booking. The last slot, 17:30, would end at 18:30, after closing.
+
+**Errors**
+
+422: missing or invalid date:
+```json
+{ "success": false, "message": "Validation failed", "errors": [{ "field": "date", "message": "Date must be a real date in the format YYYY-MM-DD" }] }
+```
+When `date` is missing, the message is `"Date is required (YYYY-MM-DD)"`.
+
+404: `{ "success": false, "message": "Service not found" }`
+
+**Tested scenarios**
+- [x] returns every 30-minute slot from 09:00 to 17:30 business time, in UTC
+- [x] marks booked slots, and slots that would overlap a booking, as unavailable
+- [x] keeps slots available when the booking on them was cancelled
+- [x] is not affected by bookings of other services
+- [x] marks slots that would end after closing time as unavailable
+- [x] marks every slot of a past date as unavailable
+- [x] marks slots that have already started today as unavailable
+- [x] returns 422 when the date is missing
+- [x] returns 422 when the date is not a real YYYY-MM-DD date
+- [x] returns 404 for an unknown, malformed or inactive service
+
+**Frontend notes:**
+- Show every slot and **disable the ones with `available: false`**.
+- Show times as `DateTime.parse(startTime).toLocal()`.
+- When booking, send `startTime` back **exactly as received**.
+- Build the `date` param from the picked day (`yyyy-MM-dd`), not from a UTC conversion.
+- Reload this list after a 409 on booking.
+
+---
+
+_Appointments and AI endpoints are added in Steps 7–8._
 
 ---
 
@@ -542,10 +785,15 @@ The seed also creates **10 services in 4 categories** (Hair & Beauty, Wellness, 
 | POST /auth/login | 7 | ✅ passing |
 | GET /users/me | 6 | ✅ passing |
 | PATCH /users/me | 12 | ✅ passing |
-| **Total** | **61** | ✅ **all passing** |
+| GET /services | 15 | ✅ passing |
+| GET /services/categories | 2 | ✅ passing |
+| GET /services/:id | 4 | ✅ passing |
+| GET /services/:id/availability | 10 | ✅ passing |
+| **Total** | **92** | ✅ **all passing** |
 
 ## 12. Changelog
 
+- **2026-11-16:** Added `GET /services`, `GET /services/categories`, `GET /services/:id` and `GET /services/:id/availability`.
 - **2026-11-16:** Added `POST /auth/register`, `POST /auth/login`, `GET /users/me` and `PATCH /users/me`. Unknown body fields now return 422 with `"This field is not allowed"`.
 - **2026-11-16:** Database and demo data. The seed adds 10 services and a demo user (see Demo credentials). Prices are in BDT. No endpoint changes.
 - **2026-11-16:** First version. `GET /health`, response and error conventions, and the booking flow outline.

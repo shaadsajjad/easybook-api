@@ -110,3 +110,29 @@ export function isValidDateString(value: string): boolean {
 export function addMinutes(date: Date, minutes: number): Date {
   return new Date(date.getTime() + minutes * MINUTE_MS);
 }
+
+/** Opening and closing instants (UTC) of the business on a given business date. */
+export function getBusinessHours(date: DateString): { open: Date; close: Date } {
+  return {
+    open: zonedTimeToUtc(date, env.BUSINESS_OPEN_HOUR),
+    close: zonedTimeToUtc(date, env.BUSINESS_CLOSE_HOUR),
+  };
+}
+
+/**
+ * Every slot start on a business date: opening time, then every SLOT_INTERVAL_MINUTES,
+ * up to (not including) closing time. 09:00-18:00 every 30 min gives 18 slots.
+ */
+export function getSlotStarts(date: DateString): Date[] {
+  const { open, close } = getBusinessHours(date);
+  const starts: Date[] = [];
+  for (let start = open; start < close; start = addMinutes(start, env.SLOT_INTERVAL_MINUTES)) {
+    starts.push(start);
+  }
+  return starts;
+}
+
+/** True if two time ranges [aStart, aEnd) and [bStart, bEnd) overlap (touching ends do not). */
+export function rangesOverlap(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): boolean {
+  return aStart < bEnd && bStart < aEnd;
+}
