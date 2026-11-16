@@ -18,7 +18,7 @@ This API handles accounts, the service catalogue, available time slots, appointm
 |---|---|
 | Local (iOS simulator / desktop) | `http://localhost:4000/api/v1` |
 | Local (Android emulator) | `http://10.0.2.2:4000/api/v1` (`10.0.2.2` is the emulator's alias for your computer) |
-| Production (Render) | `https://<render-service-name>.onrender.com/api/v1` _(to be filled in after the Render deploy)_ |
+| Production (Render) | `https://easybook-api-d89z.onrender.com/api/v1` |
 
 **Cold starts:** the production server runs on Render's free tier, which sleeps when it is idle. The **first request after a quiet period can take 30–50 seconds**. Use a generous timeout (60s) for the first call, or call `GET /health` on the splash screen to wake the server.
 
@@ -1373,6 +1373,8 @@ From the latest `npm test` run (2026-11-16). Every test runs against a real Post
 | **Total** | **163** | ✅ **all passing** |
 
 ## 12. Changelog
+
+- **2026-11-16:** The API is live in production at `https://easybook-api-d89z.onrender.com/api/v1`.
 
 - **2026-11-16:** The AI rate limit (10 messages per minute) now counts per logged-in user instead of per IP address. Added data models, `docs/requests.http` and the ER diagram.
 - **2026-11-16:** Added `PATCH /users/me/password` (change password).
