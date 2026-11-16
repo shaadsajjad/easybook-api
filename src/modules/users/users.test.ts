@@ -136,3 +136,105 @@ describe("PATCH /api/v1/users/me", () => {
   itRejectsUnauthenticatedRequests((authorization) => patch(authorization, { name: "Sam" }));
   itRejectsDeletedAccounts((authorization) => patch(authorization, { name: "Sam" }));
 });
+
+describe("PATCH /api/v1/users/me/password", () => {
+  const changePassword = (authorization: string | undefined, body: object): request.Test => {
+    const req = request(app).patch("/api/v1/users/me/password");
+    return (authorization ? req.set("Authorization", authorization) : req).send(body);
+  };
+  const login = (email: string, password: string): request.Test =>
+    request(app).post("/api/v1/auth/login").send({ email, password });
+
+  it("changes the password so only the new one works for login", async () => {
+    const user = await createUser({ email: "sam@example.com", password: "OldPass123" });
+    const res = await changePassword(bearer(user.id), { currentPassword: "OldPass123", newPassword: "NewPass456" });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true, data: null, message: "Password changed" });
+    expect((await login("sam@example.com", "NewPass456")).status).toBe(200);
+    expect((await login("sam@example.com", "OldPass123")).status).toBe(401);
+  });
+
+  it("stores the new password as a bcrypt hash", async () => {
+    const user = await createUser({ password: "OldPass123" });
+    await changePassword(bearer(user.id), { currentPassword: "OldPass123", newPassword: "NewPass456" });
+    const stored = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+
+    expect(stored.passwordHash).not.toBe(user.passwordHash);
+    expect(stored.passwordHash).not.toContain("NewPass456");
+    expect(stored.passwordHash).toMatch(/^\$2[aby]\$/);
+  });
+
+  it("returns 422 and keeps the old password when the current password is wrong", async () => {
+    const user = await createUser({ email: "sam@example.com", password: "OldPass123" });
+    const res = await changePassword(bearer(user.id), { currentPassword: "Wrong1234", newPassword: "NewPass456" });
+
+    expect(res.status).toBe(422);
+    expect(res.body).toEqual({
+      success: false,
+      message: "Current password is incorrect",
+      errors: [{ field: "currentPassword", message: "Current password is incorrect" }],
+    });
+    expect((await login("sam@example.com", "OldPass123")).status).toBe(200);
+  });
+
+  it("returns 422 when the new password breaks the password rules", async () => {
+    const user = await createUser({ password: "OldPass123" });
+    const res = await changePassword(bearer(user.id), { currentPassword: "OldPass123", newPassword: "short" });
+
+    expect(res.status).toBe(422);
+    expect(res.body.errors).toEqual([
+      { field: "newPassword", message: "Password must be at least 8 characters" },
+      { field: "newPassword", message: "Password must contain at least one number" },
+    ]);
+  });
+
+  it("returns 422 when the new password is the same as the current one", async () => {
+    const user = await createUser({ password: "OldPass123" });
+    const res = await changePassword(bearer(user.id), { currentPassword: "OldPass123", newPassword: "OldPass123" });
+
+    expect(res.status).toBe(422);
+    expect(res.body.errors).toEqual([
+      { field: "newPassword", message: "New password must be different from the current password" },
+    ]);
+  });
+
+  it("returns 422 with an error for each missing field", async () => {
+    const user = await createUser();
+    const res = await changePassword(bearer(user.id), {});
+
+    expect(res.status).toBe(422);
+    expect(res.body.errors).toEqual(
+      expect.arrayContaining([
+        { field: "currentPassword", message: "Current password is required" },
+        { field: "newPassword", message: "Password is required" },
+      ]),
+    );
+  });
+
+  it("returns 422 for fields that are not allowed", async () => {
+    const user = await createUser({ password: "OldPass123" });
+    const res = await changePassword(bearer(user.id), {
+      currentPassword: "OldPass123",
+      newPassword: "NewPass456",
+      email: "x@example.com",
+    });
+
+    expect(res.status).toBe(422);
+    expect(res.body.errors).toEqual([{ field: "email", message: "This field is not allowed" }]);
+  });
+
+  it("never includes a password or hash in the response", async () => {
+    const user = await createUser({ password: "OldPass123" });
+    const res = await changePassword(bearer(user.id), { currentPassword: "OldPass123", newPassword: "NewPass456" });
+
+    expect(JSON.stringify(res.body)).not.toMatch(/OldPass123|NewPass456|\$2[aby]\$/);
+  });
+
+  itRejectsUnauthenticatedRequests((authorization) =>
+    changePassword(authorization, { currentPassword: "OldPass123", newPassword: "NewPass456" }),
+  );
+  itRejectsDeletedAccounts((authorization) =>
+    changePassword(authorization, { currentPassword: "OldPass123", newPassword: "NewPass456" }),
+  );
+});

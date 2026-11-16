@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { passwordRules } from "../auth/auth.validation";
 
 // strictObject: any field other than name/phone is rejected with 422 instead of silently ignored.
 export const updateMeSchema = z
@@ -25,3 +26,16 @@ export const updateMeSchema = z
   });
 
 export type UpdateMeInput = z.infer<typeof updateMeSchema>;
+
+export const changePasswordSchema = z
+  .strictObject({
+    currentPassword: z.string({ error: "Current password is required" }).min(1, "Current password is required"),
+    // Same rules as registration: 8-72 characters, at least one letter and one number.
+    newPassword: passwordRules,
+  })
+  .refine((body) => body.currentPassword !== body.newPassword, {
+    message: "New password must be different from the current password",
+    path: ["newPassword"],
+  });
+
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;

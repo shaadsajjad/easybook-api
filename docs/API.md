@@ -1,6 +1,6 @@
 # EasyBook API: Frontend Guide
 
-> **Status:** every endpoint is live: health, auth, profile, services, appointments and the AI assistant. (Optional change-password is planned for Step 9.)
+> **Status:** every endpoint is live: health, auth, profile (including change password), services, appointments and the AI assistant.
 > Anything marked _(coming in Step N)_ is not built yet, so don't code against it until it appears in the [Changelog](#12-changelog).
 
 ---
@@ -500,6 +500,79 @@ Any other field (including `email`) is rejected with 422.
 - [x] returns 401 when the account behind a valid token no longer exists
 
 **Frontend notes:** show the email as read-only on the profile screen. Replace the cached user with `data` from the response.
+
+---
+
+### PATCH /users/me/password
+
+Changes the logged-in user's password. The user must enter their current password.
+
+**Auth required:** Yes (rate limited like login: 20 requests per 15 minutes)
+
+**Body**
+
+| Field | Type | Required | Rules / example |
+|---|---|---|---|
+| `currentPassword` | string | Yes | The password the user has now. `"OldPass123"` |
+| `newPassword` | string | Yes | Same rules as registration: 8–72 characters, **at least one letter and one number**, and different from the current one. `"NewPass456"` |
+
+Any other field is rejected with 422.
+
+**Success: 200**
+
+```json
+{ "success": true, "data": null, "message": "Password changed" }
+```
+
+The user **stays logged in**: the current token keeps working until it expires (7 days), so you don't need to log in again. From now on, login works only with the new password.
+
+**Errors**
+
+422: wrong current password. This is **not** a 401, so it doesn't log the user out:
+```json
+{
+  "success": false,
+  "message": "Current password is incorrect",
+  "errors": [{ "field": "currentPassword", "message": "Current password is incorrect" }]
+}
+```
+
+422: the new password breaks the rules:
+```json
+{
+  "success": false,
+  "message": "Validation failed",
+  "errors": [
+    { "field": "newPassword", "message": "Password must be at least 8 characters" },
+    { "field": "newPassword", "message": "Password must contain at least one number" }
+  ]
+}
+```
+
+422: the new password is the same as the current one:
+```json
+{ "success": false, "message": "Validation failed", "errors": [{ "field": "newPassword", "message": "New password must be different from the current password" }] }
+```
+
+When a field is missing, the messages are `"Current password is required"` and `"Password is required"`.
+
+401: see [Authentication](#4-authentication). 429: too many attempts.
+
+**Tested scenarios**
+- [x] changes the password so only the new one works for login
+- [x] stores the new password as a bcrypt hash
+- [x] returns 422 and keeps the old password when the current password is wrong
+- [x] returns 422 when the new password breaks the password rules
+- [x] returns 422 when the new password is the same as the current one
+- [x] returns 422 with an error for each missing field
+- [x] returns 422 for fields that are not allowed
+- [x] never includes a password or hash in the response
+- [x] returns 401 when no token is sent
+- [x] returns 401 when the token is malformed
+- [x] returns 401 when the token is expired
+- [x] returns 401 when the account behind a valid token no longer exists
+
+**Frontend notes:** use three fields (current, new, confirm new) and check that "confirm new" matches in the app. The API doesn't receive it. On 200, show a success message and clear the form.
 
 ---
 
@@ -1208,6 +1281,7 @@ The seed also creates **10 services in 4 categories** (Hair & Beauty, Wellness, 
 | POST /auth/login | 7 | ✅ passing |
 | GET /users/me | 6 | ✅ passing |
 | PATCH /users/me | 12 | ✅ passing |
+| PATCH /users/me/password | 12 | ✅ passing |
 | GET /services | 15 | ✅ passing |
 | GET /services/categories | 2 | ✅ passing |
 | GET /services/:id | 4 | ✅ passing |
@@ -1217,10 +1291,11 @@ The seed also creates **10 services in 4 categories** (Hair & Beauty, Wellness, 
 | GET /appointments/:id | 6 | ✅ passing |
 | PATCH /appointments/:id/cancel | 8 | ✅ passing |
 | POST /ai/chat | 18 | ✅ passing |
-| **Total** | **150** | ✅ **all passing** |
+| **Total** | **162** | ✅ **all passing** |
 
 ## 12. Changelog
 
+- **2026-11-16:** Added `PATCH /users/me/password` (change password).
 - **2026-11-16:** Added `POST /ai/chat`, the AI service assistant. It runs on OpenRouter free models, with the key kept on the server.
 - **2026-11-16:** Added `POST /appointments`, `GET /appointments`, `GET /appointments/:id` and `PATCH /appointments/:id/cancel`. Availability and booking now share the same rules, so a slot shown as available can always be booked unless someone takes it first.
 - **2026-11-16:** Added `GET /services`, `GET /services/categories`, `GET /services/:id` and `GET /services/:id/availability`.
