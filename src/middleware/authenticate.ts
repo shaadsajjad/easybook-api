@@ -1,6 +1,7 @@
-import type { RequestHandler } from "express";
+import type { Request, RequestHandler } from "express";
 import jwt from "jsonwebtoken";
 import { env } from "../config/env";
+import type { AuthUser } from "../types/express";
 import { ApiError } from "../utils/ApiError";
 
 // Requires "Authorization: Bearer <token>". On success sets req.user = { id }.
@@ -27,3 +28,12 @@ export const authenticate: RequestHandler = (req, _res, next) => {
     next(new ApiError(401, message));
   }
 };
+
+// For controllers behind `authenticate`: returns the logged-in user, or 401 if the route
+// was mounted without the middleware by mistake. Avoids non-null assertions (req.user!).
+export function requireUser(req: Request): AuthUser {
+  if (!req.user) {
+    throw new ApiError(401, "Authentication required. Please log in.");
+  }
+  return req.user;
+}
