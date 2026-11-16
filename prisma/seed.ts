@@ -17,7 +17,8 @@ const image = (photoId: string): string =>
   `https://images.unsplash.com/photo-${photoId}?w=800&q=80&auto=format&fit=crop`;
 
 // Fixed ids are the stable upsert key, so reruns update rows instead of duplicating them.
-const services: Prisma.ServiceCreateInput[] = [
+// id is required here (not optional as in Prisma.ServiceCreateInput): it is the stable upsert key.
+const services: (Prisma.ServiceCreateInput & { id: string })[] = [
   {
     id: "5e000000-0000-4000-8000-000000000001",
     name: "Classic Haircut",
@@ -151,7 +152,7 @@ async function seedDemoAppointments(userId: string): Promise<void> {
     await prisma.appointment.create({
       data: {
         userId,
-        serviceId: service.id as string,
+        serviceId: service.id,
         startTime,
         endTime: addMinutes(startTime, service.durationMinutes),
         status: sample.status,

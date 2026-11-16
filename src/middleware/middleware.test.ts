@@ -118,4 +118,19 @@ describe("rate limiter", () => {
     expect(res.status).toBe(429);
     expect(res.body).toEqual({ success: false, message: "Slow down" });
   });
+
+  it("counts each logged-in user separately when perUser is set", async () => {
+    const app = buildApp((a) => {
+      a.use(authenticate);
+      a.use(createRateLimiter({ windowMs: 60_000, limit: 1, message: "Slow down", skipInTest: false, perUser: true }));
+      a.get("/ping", (_req, res) => {
+        res.json({ success: true });
+      });
+    });
+    const tokenFor = (id: string): string => `Bearer ${jwt.sign({}, env.JWT_SECRET, { subject: id, expiresIn: "1h" })}`;
+
+    expect((await request(app).get("/ping").set("Authorization", tokenFor("user-a"))).status).toBe(200);
+    expect((await request(app).get("/ping").set("Authorization", tokenFor("user-b"))).status).toBe(200);
+    expect((await request(app).get("/ping").set("Authorization", tokenFor("user-a"))).status).toBe(429);
+  });
 });
