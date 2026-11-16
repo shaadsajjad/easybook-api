@@ -6,7 +6,7 @@ Backend for **EasyBook**, a Flutter mobile app for booking local services: brows
 - **Database schema / ER diagram:** [docs/ER-diagram.md](docs/ER-diagram.md)
 - **Ready-made requests:** [docs/requests.http](docs/requests.http)
 - **Flutter app repository:** _&lt;add the Flutter repo link here&gt;_
-- **Production base URL:** `https://<render-service-name>.onrender.com/api/v1` _(fill in after deploying)_
+- **Production base URL:** `https://easybook-api-d89z.onrender.com/api/v1` (health check: [https://easybook-api-d89z.onrender.com/api/v1/health](https://easybook-api-d89z.onrender.com/api/v1/health))
 
 ---
 
@@ -160,7 +160,7 @@ Latest run: **163 tests passing** (per-endpoint breakdown in [docs/API.md, secti
    - Start command: `npm start`
    - Health check path: `/api/v1/health`
 3. **Environment variables:** in the Render dashboard, set every variable from the table above. Use `NODE_ENV=production` and add `NODE_VERSION=22`. The secrets are `DATABASE_URL`, `DIRECT_URL`, `JWT_SECRET` and `OPENROUTER_API_KEY`.
-4. **Check it:** open `https://<service>.onrender.com/api/v1/health`, then put the URL in this README and in `docs/API.md`.
+4. **Check it:** open `https://<service>.onrender.com/api/v1/health`. The live instance is at `https://easybook-api-d89z.onrender.com/api/v1`.
 
 **Cold starts:** the free tier sleeps after about 15 minutes idle, and the first request then takes **30–50 seconds**. Open `/api/v1/health` a minute before a demo or review to wake it up.
 
