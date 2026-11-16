@@ -148,7 +148,7 @@ Send `?page=1&limit=20`. The default is page 1 with 20 items, and `limit` can be
 
 ### Prices
 
-`price` is returned as a **string** with two decimals, for example `"25.00"`. This keeps the exact value (no floating-point rounding). In Dart, use `double.parse(json['price'])` for display or `Decimal.parse` if you do any money maths.
+`price` is returned as a **string** with two decimals, in **Bangladeshi Taka (BDT, ৳)**, for example `"500.00"`. This keeps the exact value (no floating-point rounding). In Dart, use `double.parse(json['price'])` for display or `Decimal.parse` if you do any money maths.
 
 ### Enums
 
@@ -263,7 +263,22 @@ _(Added in Step 10.)_
 
 ## 10. Demo credentials
 
-_(Added once the seed runs in Step 3.)_
+After `npm run seed`, this account exists with sample data:
+
+| Email | Password |
+|---|---|
+| `demo@example.com` | `Demo1234` |
+
+The demo user has four bookings, so every My Bookings state can be seen right away:
+
+| Status | When |
+|---|---|
+| `COMPLETED` | 7 days ago (Past tab) |
+| `CONFIRMED` | in 2 days (Upcoming tab) |
+| `CANCELLED` | in 3 days (Past tab) |
+| `PENDING` | in 5 days (Upcoming tab, can be cancelled) |
+
+The seed also creates **10 services in 4 categories** (Hair & Beauty, Wellness, Home Services, Health). **4 of them are featured.** Rerunning the seed resets the demo user's bookings.
 
 ## 11. Test coverage summary
 
@@ -271,7 +286,10 @@ _(Added once the seed runs in Step 3.)_
 |---|---|---|
 | Health, unknown routes, body errors | 5 | ✅ passing |
 | Shared middleware (validation, auth token, rate limit) | 8 | ✅ passing |
+| Time-zone helpers | 6 | ✅ passing |
+| Database double-booking constraint | 5 | ✅ passing |
 
 ## 12. Changelog
 
+- **2026-11-16:** Database and demo data. The seed adds 10 services and a demo user (see Demo credentials). Prices are in BDT. No endpoint changes.
 - **2026-11-16:** First version. `GET /health`, response and error conventions, and the booking flow outline.

@@ -1,4 +1,11 @@
 {
+  // Production build: compiles only the app (no tests, no seed) from src/ into dist/.
   "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts", "src/tests/**"]
 }
