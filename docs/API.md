@@ -1,7 +1,7 @@
 # EasyBook API: Frontend Guide
 
 > **Status:** every endpoint is live: health, auth, profile (including change password), services, appointments and the AI assistant.
-> Anything marked _(coming in Step N)_ is not built yet, so don't code against it until it appears in the [Changelog](#12-changelog).
+> Changes to the API are listed in the [Changelog](#12-changelog).
 
 ---
 
@@ -18,7 +18,7 @@ This API handles accounts, the service catalogue, available time slots, appointm
 |---|---|
 | Local (iOS simulator / desktop) | `http://localhost:4000/api/v1` |
 | Local (Android emulator) | `http://10.0.2.2:4000/api/v1` (`10.0.2.2` is the emulator's alias for your computer) |
-| Production (Render) | `https://<render-service-name>.onrender.com/api/v1` _(filled in after deploy, Step 4)_ |
+| Production (Render) | `https://<render-service-name>.onrender.com/api/v1` _(to be filled in after the Render deploy)_ |
 
 **Cold starts:** the production server runs on Render's free tier, which sleeps when it is idle. The **first request after a quiet period can take 30–50 seconds**. Use a generous timeout (60s) for the first call, or call `GET /health` on the splash screen to wake the server.
 
@@ -199,13 +199,13 @@ Real examples:
 { "success": false, "message": "Something went wrong. Please try again." }
 ```
 
-**Rate limits** (per device IP):
+**Rate limits** (per device IP unless noted):
 
 | Routes | Limit |
 |---|---|
 | All routes | 300 requests / 15 minutes |
 | `/auth/*` | 20 requests / 15 minutes |
-| `/ai/*` | 10 requests / minute |
+| `/ai/*` | 10 requests / minute **per user** |
 
 ---
 
@@ -1125,7 +1125,7 @@ Cancels a booking. **Only `PENDING` bookings can be cancelled.** Cancelling free
 
 Asks the EasyBook AI assistant a question about services. It recommends services that fit the user's needs and answers basic questions (price, duration, what a service includes, how to book).
 
-**Auth required:** Yes (rate limited: **10 messages per minute**)
+**Auth required:** Yes (rate limited: **10 messages per minute per user**)
 
 How it works:
 - On every request, the server loads the current active services from the database and gives them to the AI. Answers always match the real catalogue and prices.
@@ -1248,7 +1248,84 @@ Other 422 messages: `"Message must be at most 500 characters"` (field `message` 
 
 ## 9. Data models
 
-_(Added in Step 10.)_
+Types use JSON terms. "Nullable" means the key is **always present** but its value can be `null`. A field marked _No_ is never null, so in Dart you can use non-nullable types for those.
+
+### User
+
+| Field | Type | Nullable | Notes |
+|---|---|---|---|
+| `id` | string (uuid) | No | |
+| `name` | string | No | 2–100 chars |
+| `email` | string | No | Always lowercase. Can't be changed |
+| `phone` | string | **Yes** | `null` until the user adds one |
+| `createdAt` | string (ISO 8601 UTC) | No | |
+| `updatedAt` | string (ISO 8601 UTC) | No | |
+
+```dart
+class User {
+  final String id, name, email;
+  final String? phone;
+  final DateTime createdAt, updatedAt;
+}
+```
+
+### Service
+
+| Field | Type | Nullable | Notes |
+|---|---|---|---|
+| `id` | string (uuid) | No | |
+| `name` | string | No | |
+| `description` | string | No | |
+| `price` | **string** | No | Two decimals, BDT, e.g. `"500.00"`. Use `double.parse` |
+| `durationMinutes` | int | No | |
+| `imageUrl` | string (URL) | No | |
+| `category` | string | No | One of `GET /services/categories` |
+| `isFeatured` | bool | No | |
+| `createdAt` / `updatedAt` | string (ISO 8601 UTC) | No | |
+
+### ServiceSummary (inside an Appointment)
+
+`id`, `name`, `price` (string), `durationMinutes`, `imageUrl`, `category`. None of them is nullable.
+
+### Appointment
+
+| Field | Type | Nullable | Notes |
+|---|---|---|---|
+| `id` | string (uuid) | No | |
+| `serviceId` | string (uuid) | No | |
+| `startTime` | string (ISO 8601 UTC) | No | Convert with `.toLocal()` for display |
+| `endTime` | string (ISO 8601 UTC) | No | `startTime + service.durationMinutes` |
+| `status` | string enum | No | `PENDING` \| `CONFIRMED` \| `CANCELLED` \| `COMPLETED` |
+| `notes` | string | **Yes** | |
+| `createdAt` / `updatedAt` | string (ISO 8601 UTC) | No | |
+| `service` | ServiceSummary | No | |
+
+```dart
+enum AppointmentStatus { PENDING, CONFIRMED, CANCELLED, COMPLETED }
+// canCancel == (status == AppointmentStatus.PENDING)
+```
+
+### Availability
+
+| Field | Type | Nullable | Notes |
+|---|---|---|---|
+| `serviceId` | string (uuid) | No | |
+| `date` | string `YYYY-MM-DD` | No | Business date (Asia/Dhaka) |
+| `timeZone` | string | No | `"Asia/Dhaka"` |
+| `durationMinutes` | int | No | |
+| `slots` | list of `{ startTime: string, endTime: string, available: bool }` | No | 18 slots per day, times in UTC |
+
+### Auth result (register / login)
+
+`{ user: User, token: string }`
+
+### Chat reply (AI)
+
+`{ reply: string, suggestedServices: [{ id: string, name: string }] }`. `suggestedServices` is always a list and may be empty.
+
+### Pagination meta (`GET /services`)
+
+`{ page: int, limit: int, total: int, totalPages: int }`. `totalPages` is `0` when there are no results.
 
 ## 10. Demo credentials
 
@@ -1271,10 +1348,12 @@ The seed also creates **10 services in 4 categories** (Hair & Beauty, Wellness, 
 
 ## 11. Test coverage summary
 
+From the latest `npm test` run (2026-11-16). Every test runs against a real Postgres test database. The AI provider is always mocked.
+
 | Area | Tests | Status |
 |---|---|---|
 | Health, unknown routes, body errors | 5 | ✅ passing |
-| Shared middleware (validation, auth token, rate limit) | 8 | ✅ passing |
+| Shared middleware (validation, auth token, rate limit) | 9 | ✅ passing |
 | Time-zone helpers | 6 | ✅ passing |
 | Database double-booking constraint | 5 | ✅ passing |
 | POST /auth/register | 12 | ✅ passing |
@@ -1291,10 +1370,11 @@ The seed also creates **10 services in 4 categories** (Hair & Beauty, Wellness, 
 | GET /appointments/:id | 6 | ✅ passing |
 | PATCH /appointments/:id/cancel | 8 | ✅ passing |
 | POST /ai/chat | 18 | ✅ passing |
-| **Total** | **162** | ✅ **all passing** |
+| **Total** | **163** | ✅ **all passing** |
 
 ## 12. Changelog
 
+- **2026-11-16:** The AI rate limit (10 messages per minute) now counts per logged-in user instead of per IP address. Added data models, `docs/requests.http` and the ER diagram.
 - **2026-11-16:** Added `PATCH /users/me/password` (change password).
 - **2026-11-16:** Added `POST /ai/chat`, the AI service assistant. It runs on OpenRouter free models, with the key kept on the server.
 - **2026-11-16:** Added `POST /appointments`, `GET /appointments`, `GET /appointments/:id` and `PATCH /appointments/:id/cancel`. Availability and booking now share the same rules, so a slot shown as available can always be booked unless someone takes it first.

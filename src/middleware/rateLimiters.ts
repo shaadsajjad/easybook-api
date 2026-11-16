@@ -1,5 +1,5 @@
-import type { RequestHandler } from "express";
-import rateLimit from "express-rate-limit";
+import type { Request, RequestHandler } from "express";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { env } from "../config/env";
 
 interface LimiterOptions {
@@ -8,13 +8,22 @@ interface LimiterOptions {
   message: string;
   // Tests send many requests quickly, so limiters are off in the test environment by default.
   skipInTest?: boolean;
+  // Count per logged-in user instead of per IP (for routes behind `authenticate`).
+  perUser?: boolean;
+}
+
+// Mobile carriers often put many phones behind one shared IP, so a per-IP limit on a
+// logged-in route could block unrelated users. Falls back to the IP if there is no user.
+function userOrIpKey(req: Request): string {
+  return req.user ? `user:${req.user.id}` : ipKeyGenerator(req.ip ?? "unknown");
 }
 
 export function createRateLimiter(options: LimiterOptions): RequestHandler {
-  const { windowMs, limit, message, skipInTest = true } = options;
+  const { windowMs, limit, message, skipInTest = true, perUser = false } = options;
   return rateLimit({
     windowMs,
     limit,
+    ...(perUser && { keyGenerator: userOrIpKey }),
     standardHeaders: "draft-8",
     legacyHeaders: false,
     skip: () => skipInTest && env.NODE_ENV === "test",
@@ -45,4 +54,5 @@ export const aiLimiter = createRateLimiter({
   windowMs: MINUTE,
   limit: 10,
   message: "You are sending messages too quickly. Please wait a minute and try again.",
+  perUser: true,
 });

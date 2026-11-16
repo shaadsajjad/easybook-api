@@ -1,0 +1,220 @@
+# EasyBook API: example requests for the VS Code "REST Client" extension
+# (or JetBrains HTTP Client). Click "Send Request" above each block.
+#
+# 1. Start the API (npm run dev) and seed it (npm run seed).
+# 2. Run "Login (demo user)" first: its token is reused by every request below.
+
+@baseUrl = http://localhost:4000/api/v1
+# @baseUrl = https://<render-service-name>.onrender.com/api/v1
+
+@token = {{login.response.body.data.token}}
+
+# Seeded ids (see prisma/seed.ts)
+@haircutId = 5e000000-0000-4000-8000-000000000001
+@massageId = 5e000000-0000-4000-8000-000000000004
+
+### Health check (public)
+GET {{baseUrl}}/health
+
+### ───────────── Auth ─────────────
+
+### Register a new account
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "name": "Ayesha Rahman",
+  "email": "ayesha@example.com",
+  "password": "Secret123"
+}
+
+### Register with invalid data (422 with field errors)
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "name": "A",
+  "email": "not-an-email",
+  "password": "short"
+}
+
+### Login (demo user): run this first
+# @name login
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "demo@example.com",
+  "password": "Demo1234"
+}
+
+### Login with a wrong password (401, generic message)
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "demo@example.com",
+  "password": "WrongPass1"
+}
+
+### ───────────── Users ─────────────
+
+### My profile
+GET {{baseUrl}}/users/me
+Authorization: Bearer {{token}}
+
+### Unauthorized access: no token (401)
+GET {{baseUrl}}/users/me
+
+### Unauthorized access: invalid token (401)
+GET {{baseUrl}}/appointments
+Authorization: Bearer this-is-not-a-valid-token
+
+### Update my profile
+PATCH {{baseUrl}}/users/me
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Demo User",
+  "phone": "+8801700000000"
+}
+
+### Try to change the email (422: email cannot be changed)
+PATCH {{baseUrl}}/users/me
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "email": "new@example.com"
+}
+
+### Change password with a wrong current password (422)
+# (Use the right one to really change it; then log in with the new password.)
+PATCH {{baseUrl}}/users/me/password
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "currentPassword": "NotMyPassword1",
+  "newPassword": "NewPass456"
+}
+
+### ───────────── Services (public) ─────────────
+
+### All services (page 1)
+GET {{baseUrl}}/services
+
+### Featured services
+GET {{baseUrl}}/services?featured=true
+
+### Search + category + price range + pagination
+GET {{baseUrl}}/services?search=massage&category=Wellness&minPrice=1000&maxPrice=5000&page=1&limit=10
+
+### Categories (for filter chips)
+GET {{baseUrl}}/services/categories
+
+### Service detail
+GET {{baseUrl}}/services/{{massageId}}
+
+### Unknown service (404)
+GET {{baseUrl}}/services/5e000000-0000-4000-8000-0000000000ff
+
+### Availability for a date (change the date to a day in the next week)
+GET {{baseUrl}}/services/{{haircutId}}/availability?date=2026-11-20
+
+### ───────────── Appointments ─────────────
+
+### Book a slot (copy a startTime with "available": true from the availability response)
+# @name booking
+POST {{baseUrl}}/appointments
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "serviceId": "{{haircutId}}",
+  "startTime": "2026-11-20T04:00:00.000Z",
+  "notes": "Short on the sides, please."
+}
+
+### Double booking: the same slot again (409 "already booked")
+POST {{baseUrl}}/appointments
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "serviceId": "{{haircutId}}",
+  "startTime": "2026-11-20T04:00:00.000Z"
+}
+
+### Off-grid time (422: must be on a 30-minute slot)
+POST {{baseUrl}}/appointments
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "serviceId": "{{haircutId}}",
+  "startTime": "2026-11-20T04:15:00.000Z"
+}
+
+### My upcoming bookings
+GET {{baseUrl}}/appointments?type=upcoming
+Authorization: Bearer {{token}}
+
+### My past bookings
+GET {{baseUrl}}/appointments?type=past
+Authorization: Bearer {{token}}
+
+### Only pending bookings
+GET {{baseUrl}}/appointments?status=PENDING
+Authorization: Bearer {{token}}
+
+### Booking detail (the one created above)
+GET {{baseUrl}}/appointments/{{booking.response.body.data.id}}
+Authorization: Bearer {{token}}
+
+### Cancel it (200, status becomes CANCELLED; cancelling again returns 409)
+PATCH {{baseUrl}}/appointments/{{booking.response.body.data.id}}/cancel
+Authorization: Bearer {{token}}
+
+### Someone else's / unknown booking (404)
+GET {{baseUrl}}/appointments/a0000000-0000-4000-8000-0000000000ff
+Authorization: Bearer {{token}}
+
+### ───────────── AI assistant ─────────────
+
+### Ask for a recommendation
+POST {{baseUrl}}/ai/chat
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "message": "I have a stiff back after long hours at my desk. What would you recommend?"
+}
+
+### Follow-up question with history
+POST {{baseUrl}}/ai/chat
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "message": "Anything cheaper?",
+  "history": [
+    { "role": "user", "content": "I have a stiff back after long hours at my desk. What would you recommend?" },
+    { "role": "assistant", "content": "A Full Body Massage would help. It is a 60-minute Swedish massage and costs 3000.00 BDT." }
+  ]
+}
+
+### Off-topic question (politely declined)
+POST {{baseUrl}}/ai/chat
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "message": "Who won the football world cup in 2022?"
+}
+
+### ───────────── Errors ─────────────
+
+### Unknown route (404, same error shape)
+GET {{baseUrl}}/does-not-exist

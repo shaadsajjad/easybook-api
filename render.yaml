@@ -1,0 +1,40 @@
+# Render Blueprint for the EasyBook API (optional: you can also create the Web Service by hand
+# with the same settings). Secrets are marked sync: false and are entered in the Render dashboard.
+services:
+  - type: web
+    name: easybook-api
+    runtime: node
+    region: singapore # next to the Neon database (ap-southeast-1)
+    plan: free
+    buildCommand: npm install --include=dev && npx prisma generate && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL # Neon POOLED string + &pgbouncer=true&connect_timeout=15
+        sync: false
+      - key: DIRECT_URL # Neon DIRECT string (migrations are run from your machine, not here)
+        sync: false
+      - key: JWT_SECRET # at least 32 random characters
+        sync: false
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: BCRYPT_ROUNDS
+        value: "10"
+      - key: CORS_ORIGIN
+        value: "*"
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_MODELS
+        value: nvidia/nemotron-3.5-lightning:free,baidu/ernie-5.5-flash-preview:free,google/gemma-4-31b-it:free
+      - key: BUSINESS_TIMEZONE
+        value: Asia/Dhaka
+      - key: BUSINESS_OPEN_HOUR
+        value: "9"
+      - key: BUSINESS_CLOSE_HOUR
+        value: "18"
+      - key: SLOT_INTERVAL_MINUTES
+        value: "30"
