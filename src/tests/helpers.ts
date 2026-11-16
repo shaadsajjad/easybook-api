@@ -1,6 +1,8 @@
 import { AppointmentStatus, type Appointment, type Service, type User } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import type { Test } from "supertest";
+import { expect, it } from "vitest";
 import { env } from "../config/env";
 import { prisma } from "../config/prisma";
 import { addDays, addMinutes, toZonedDateString, zonedTimeToUtc } from "../utils/time";
@@ -97,4 +99,29 @@ export function businessDate(daysAhead: number): string {
 export function nextBookableSlot(slotsAfterOpening: number = 0): Date {
   const opening = zonedTimeToUtc(businessDate(2), env.BUSINESS_OPEN_HOUR);
   return addMinutes(opening, slotsAfterOpening * env.SLOT_INTERVAL_MINUTES);
+}
+
+/**
+ * The 401 cases every protected endpoint must handle. `send` makes the request with the
+ * given Authorization header (or none when undefined).
+ */
+export function itRejectsUnauthenticatedRequests(send: (authorization?: string) => Test): void {
+  it("returns 401 when no token is sent", async () => {
+    const res = await send();
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ success: false, message: "Authentication required. Please log in." });
+  });
+
+  it("returns 401 when the token is malformed", async () => {
+    const res = await send("Bearer not-a-real-token");
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ success: false, message: "Invalid token. Please log in again." });
+  });
+
+  it("returns 401 when the token is expired", async () => {
+    const user = await createUser();
+    const res = await send(`Bearer ${expiredTokenFor(user.id)}`);
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ success: false, message: "Your session has expired. Please log in again." });
+  });
 }

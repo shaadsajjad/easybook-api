@@ -1,6 +1,6 @@
 # EasyBook API: Frontend Guide
 
-> **Status:** health, auth, profile and services endpoints are live. Appointments and AI endpoints are added as each module ships.
+> **Status:** health, auth, profile, services and appointments endpoints are live. The AI assistant endpoint is added in Step 8.
 > Anything marked _(coming in Step N)_ is not built yet, so don't code against it until it appears in the [Changelog](#12-changelog).
 
 ---
@@ -211,7 +211,7 @@ Real examples:
 
 ## 7. Booking flow guide
 
-The screens and calls, in order. _(Steps 1–4 are live. The appointment endpoints in steps 5–8 land in Step 7.)_
+The screens and calls, in order. All of these endpoints are live.
 
 1. **Home / service list:** `GET /services` (with `search`, `category`, `featured`, `minPrice`, `maxPrice`, `page`). Use `GET /services/categories` for filter chips.
 2. **Service detail:** `GET /services/:id`.
@@ -746,7 +746,309 @@ When `date` is missing, the message is `"Date is required (YYYY-MM-DD)"`.
 
 ---
 
-_Appointments and AI endpoints are added in Steps 7–8._
+### POST /appointments
+
+Books a time slot for a service. New bookings always start as `PENDING`.
+
+**Auth required:** Yes
+
+**Body**
+
+| Field | Type | Required | Rules / example |
+|---|---|---|---|
+| `serviceId` | string (uuid) | Yes | From the service list. `"5e000000-0000-4000-8000-000000000001"` |
+| `startTime` | string (ISO 8601) | Yes | **Send exactly a `startTime` from the availability response.** Must include a time zone (`Z` or `+06:00`). `"2026-11-20T04:00:00.000Z"` |
+| `notes` | string | No | Up to 500 characters, trimmed. `"Short on the sides, please."` |
+
+The server works out `endTime` (`startTime + durationMinutes`). The booking is rejected if:
+- the time is in the past,
+- it is not on a 30-minute slot (09:00, 09:30, …),
+- it is outside business hours (09:00–18:00 Dhaka time),
+- the service would run past closing, or
+- it overlaps another booking for this service.
+
+**Success: 201**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "4a202958-e874-485d-8e12-411f46c71aae",
+    "serviceId": "5e000000-0000-4000-8000-000000000001",
+    "startTime": "2026-11-20T04:00:00.000Z",
+    "endTime": "2026-11-20T04:30:00.000Z",
+    "status": "PENDING",
+    "notes": "Short on the sides, please.",
+    "createdAt": "2026-11-16T15:41:53.197Z",
+    "updatedAt": "2026-11-16T15:41:53.197Z",
+    "service": {
+      "id": "5e000000-0000-4000-8000-000000000001",
+      "name": "Classic Haircut",
+      "price": "500.00",
+      "durationMinutes": 30,
+      "imageUrl": "https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=800&q=80&auto=format&fit=crop",
+      "category": "Hair & Beauty"
+    }
+  },
+  "message": "Appointment booked"
+}
+```
+
+**Errors**
+
+409: slot already taken (including when two people tap Book at the same moment):
+```json
+{ "success": false, "message": "This time slot is already booked. Please choose another time." }
+```
+
+422: the time breaks a booking rule. There is always one error, on `startTime`:
+```json
+{
+  "success": false,
+  "message": "This time cannot be booked",
+  "errors": [{ "field": "startTime", "message": "Start time must be on a 30-minute slot (for example 09:00)" }]
+}
+```
+
+| `errors[0].message` | Cause |
+|---|---|
+| `This time is in the past. Please choose a future slot.` | `startTime` is earlier than now |
+| `Start time must be on a 30-minute slot (for example 09:00)` | e.g. 10:15 |
+| `Bookings are only available between 09:00 and 18:00 (Asia/Dhaka time)` | before opening or from closing time onwards |
+| `This service would end after closing time (18:00). Please choose an earlier slot.` | e.g. a 60-minute service at 17:30 |
+
+422: invalid body:
+```json
+{
+  "success": false,
+  "message": "Validation failed",
+  "errors": [
+    { "field": "serviceId", "message": "serviceId must be a valid id" },
+    { "field": "startTime", "message": "startTime must be an ISO 8601 date-time, e.g. 2026-11-18T03:00:00.000Z" }
+  ]
+}
+```
+
+404: the service does not exist or is no longer offered: `{ "success": false, "message": "Service not found" }`
+
+401: see [Authentication](#4-authentication).
+
+**Tested scenarios**
+- [x] books a free slot and returns it as PENDING with the service summary
+- [x] accepts a start time sent with a time-zone offset instead of Z
+- [x] returns 409 when the slot is already booked
+- [x] returns 409 when the new booking would overlap part of an existing one
+- [x] lets exactly one of several simultaneous requests for the same slot succeed
+- [x] allows booking a slot again after its booking was cancelled
+- [x] allows back-to-back bookings and the same time on a different service
+- [x] returns 422 when the time is in the past
+- [x] returns 422 when the time is not on the 30-minute slot grid
+- [x] returns 422 when the time is outside business hours
+- [x] returns 422 when the service would end after closing time
+- [x] returns 404 when the service does not exist or is inactive
+- [x] returns 422 with an error for each missing field
+- [x] returns 422 when serviceId is not a uuid, startTime is not a date-time or notes are too long
+- [x] returns 401 when no token is sent
+- [x] returns 401 when the token is malformed
+- [x] returns 401 when the token is expired
+
+**Frontend notes:**
+- On 201, show the confirmation screen from `data`. You don't need another request.
+- On 409, show the message, then **reload availability** for that date. Someone else just took the slot.
+- Disable the Book button while the request is in flight, so the user can't send it twice.
+
+---
+
+### GET /appointments
+
+The logged-in user's bookings, for the **My Bookings** tabs.
+
+**Auth required:** Yes
+
+**Query parameters** (optional)
+
+| Param | Values | Meaning |
+|---|---|---|
+| `type` | `upcoming` | `startTime` is now or later **and** status is `PENDING` or `CONFIRMED`. Sorted **soonest first**. |
+| | `past` | Everything else: earlier bookings, plus any `CANCELLED` or `COMPLETED` (even a cancelled one in the future). Sorted **most recent first**. |
+| | _(omitted)_ | All bookings, most recent first. |
+| `status` | `PENDING`, `CONFIRMED`, `CANCELLED`, `COMPLETED` | Only this status. Can be combined with `type`. |
+
+There is no pagination: a user has a small number of bookings.
+
+**Success: 200** (`GET /appointments?type=upcoming` for the demo user. The first item is shown; the 2 others are left out.)
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "0dd86afd-ac86-4c4b-bdc3-5c60aa651f8c",
+      "serviceId": "5e000000-0000-4000-8000-000000000004",
+      "startTime": "2026-11-18T05:00:00.000Z",
+      "endTime": "2026-11-18T06:00:00.000Z",
+      "status": "CONFIRMED",
+      "notes": "Medium pressure, please.",
+      "createdAt": "2026-11-16T15:12:42.618Z",
+      "updatedAt": "2026-11-16T15:12:42.618Z",
+      "service": {
+        "id": "5e000000-0000-4000-8000-000000000004",
+        "name": "Full Body Massage",
+        "price": "3000.00",
+        "durationMinutes": 60,
+        "imageUrl": "https://images.unsplash.com/photo-1544161515-4ab6ce6db874?w=800&q=80&auto=format&fit=crop",
+        "category": "Wellness"
+      }
+    }
+  ]
+}
+```
+
+A user with no bookings gets `{ "success": true, "data": [] }`.
+
+**Errors**
+
+422:
+```json
+{ "success": false, "message": "Validation failed", "errors": [{ "field": "type", "message": "type must be \"upcoming\" or \"past\"" }] }
+```
+
+401:
+```json
+{ "success": false, "message": "Authentication required. Please log in." }
+```
+
+**Tested scenarios**
+- [x] returns only the logged-in user's appointments, most recent first, with the service summary
+- [x] returns upcoming appointments (future PENDING or CONFIRMED), soonest first
+- [x] returns past appointments (earlier, cancelled or completed), most recent first
+- [x] filters by status, alone or together with type
+- [x] returns an empty list when the user has no appointments
+- [x] returns 422 for an unknown type or status
+- [x] returns 401 when no token is sent
+- [x] returns 401 when the token is malformed
+- [x] returns 401 when the token is expired
+
+**Frontend notes:** use two tabs, Upcoming (`?type=upcoming`) and Past (`?type=past`). Show `status` as a coloured chip. Each item already contains `service`, so you can draw the card without fetching the service.
+
+---
+
+### GET /appointments/:id
+
+One booking, with its service summary, for the booking detail screen.
+
+**Auth required:** Yes
+
+**Path parameters:** `id` (uuid)
+
+**Success: 200**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "4a202958-e874-485d-8e12-411f46c71aae",
+    "serviceId": "5e000000-0000-4000-8000-000000000001",
+    "startTime": "2026-11-20T04:00:00.000Z",
+    "endTime": "2026-11-20T04:30:00.000Z",
+    "status": "PENDING",
+    "notes": "Short on the sides, please.",
+    "createdAt": "2026-11-16T15:41:53.197Z",
+    "updatedAt": "2026-11-16T15:41:53.197Z",
+    "service": {
+      "id": "5e000000-0000-4000-8000-000000000001",
+      "name": "Classic Haircut",
+      "price": "500.00",
+      "durationMinutes": 30,
+      "imageUrl": "https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=800&q=80&auto=format&fit=crop",
+      "category": "Hair & Beauty"
+    }
+  }
+}
+```
+
+**Errors**
+
+404: unknown id, malformed id, **or someone else's booking**. Other users' bookings are never revealed:
+```json
+{ "success": false, "message": "Appointment not found" }
+```
+
+401: see [Authentication](#4-authentication).
+
+**Tested scenarios**
+- [x] returns the appointment with its service summary
+- [x] returns 404 for another user's appointment
+- [x] returns 404 for an unknown id or an id that is not a valid uuid
+- [x] returns 401 when no token is sent
+- [x] returns 401 when the token is malformed
+- [x] returns 401 when the token is expired
+
+**Frontend notes:** show the Cancel button only when `status == "PENDING"`.
+
+---
+
+### PATCH /appointments/:id/cancel
+
+Cancels a booking. **Only `PENDING` bookings can be cancelled.** Cancelling frees the slot for others straight away.
+
+**Auth required:** Yes
+
+**Path parameters:** `id` (uuid). There is no request body.
+
+**Success: 200**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "4a202958-e874-485d-8e12-411f46c71aae",
+    "serviceId": "5e000000-0000-4000-8000-000000000001",
+    "startTime": "2026-11-20T04:00:00.000Z",
+    "endTime": "2026-11-20T04:30:00.000Z",
+    "status": "CANCELLED",
+    "notes": "Short on the sides, please.",
+    "createdAt": "2026-11-16T15:41:53.197Z",
+    "updatedAt": "2026-11-16T15:41:56.168Z",
+    "service": {
+      "id": "5e000000-0000-4000-8000-000000000001",
+      "name": "Classic Haircut",
+      "price": "500.00",
+      "durationMinutes": 30,
+      "imageUrl": "https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=800&q=80&auto=format&fit=crop",
+      "category": "Hair & Beauty"
+    }
+  },
+  "message": "Appointment cancelled"
+}
+```
+
+**Errors**
+
+409: the booking is not `PENDING`. The message names the current status (`confirmed`, `completed` or `cancelled`):
+```json
+{ "success": false, "message": "Only pending appointments can be cancelled. This appointment is confirmed." }
+```
+
+404: unknown, malformed or someone else's: `{ "success": false, "message": "Appointment not found" }`
+
+401: see [Authentication](#4-authentication).
+
+**Tested scenarios**
+- [x] cancels a pending appointment and returns it with status CANCELLED
+- [x] frees the slot so it can be booked again
+- [x] returns 409 for confirmed, completed or already cancelled appointments
+- [x] returns 404 for another user's appointment and leaves it unchanged
+- [x] returns 404 for an unknown id or an id that is not a valid uuid
+- [x] returns 401 when no token is sent
+- [x] returns 401 when the token is malformed
+- [x] returns 401 when the token is expired
+
+**Frontend notes:** ask "Cancel this booking?" before calling. On 200, update the item in place from `data`; it moves to the Past tab. On 409, show the message and refresh the list.
+
+---
+
+_The AI assistant endpoint is added in Step 8._
 
 ---
 
@@ -789,10 +1091,15 @@ The seed also creates **10 services in 4 categories** (Hair & Beauty, Wellness, 
 | GET /services/categories | 2 | ✅ passing |
 | GET /services/:id | 4 | ✅ passing |
 | GET /services/:id/availability | 10 | ✅ passing |
-| **Total** | **92** | ✅ **all passing** |
+| POST /appointments | 17 | ✅ passing |
+| GET /appointments | 9 | ✅ passing |
+| GET /appointments/:id | 6 | ✅ passing |
+| PATCH /appointments/:id/cancel | 8 | ✅ passing |
+| **Total** | **132** | ✅ **all passing** |
 
 ## 12. Changelog
 
+- **2026-11-16:** Added `POST /appointments`, `GET /appointments`, `GET /appointments/:id` and `PATCH /appointments/:id/cancel`. Availability and booking now share the same rules, so a slot shown as available can always be booked unless someone takes it first.
 - **2026-11-16:** Added `GET /services`, `GET /services/categories`, `GET /services/:id` and `GET /services/:id/availability`.
 - **2026-11-16:** Added `POST /auth/register`, `POST /auth/login`, `GET /users/me` and `PATCH /users/me`. Unknown body fields now return 422 with `"This field is not allowed"`.
 - **2026-11-16:** Database and demo data. The seed adds 10 services and a demo user (see Demo credentials). Prices are in BDT. No endpoint changes.
