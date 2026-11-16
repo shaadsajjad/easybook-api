@@ -24,9 +24,14 @@ const envSchema = z
 
     CORS_ORIGIN: z.string().min(1).default("*"),
 
-    // Optional so the API can boot without it; the AI endpoint returns 503 when it is missing.
-    GEMINI_API_KEY: z.string().optional(),
-    GEMINI_MODEL: z.string().min(1).default("gemini-2.5-flash"),
+    // AI assistant (OpenRouter). Optional so the API can boot without it; /ai/chat returns 503 when missing.
+    OPENROUTER_API_KEY: z.string().optional(),
+    // Comma-separated, tried in order: if the first free model is rate-limited, OpenRouter uses the next.
+    OPENROUTER_MODELS: z
+      .string()
+      .default("nvidia/nemotron-3.5-lightning:free,baidu/ernie-5.5-flash-preview:free,google/gemma-4-31b-it:free")
+      .transform((value) => value.split(",").map((m) => m.trim()).filter(Boolean))
+      .refine((models) => models.length > 0, "must list at least one model id"),
 
     BUSINESS_TIMEZONE: z
       .string()

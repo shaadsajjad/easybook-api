@@ -22,7 +22,7 @@ Use the name "EasyBook" in the README, API docs and the AI assistant's system pr
 - Config: dotenv
 - Testing: Vitest + Supertest (+ @types/supertest)
 - Dev tooling: tsx (run and watch TypeScript), tsc (production build), @types/* packages
-- AI: Google Gemini API called with plain `fetch` (no extra SDK); provider code isolated in one file so it can be swapped for OpenAI
+- AI: OpenRouter (OpenAI-compatible chat completions API) with free models, called with plain `fetch` (no extra SDK). A comma-separated model list gives fallback when a free model is rate-limited. Provider code isolated in `ai.service.ts` so it can be swapped (e.g. for Gemini or OpenAI). Chosen by the developer on 2026-11-16 instead of Gemini.
 - Deployment: Render (Web Service)
 
 ## Rules of engagement
@@ -128,8 +128,8 @@ JWT_SECRET=              # long random string, min 32 chars
 JWT_EXPIRES_IN=7d
 BCRYPT_ROUNDS=10
 CORS_ORIGIN=*            # acceptable for a mobile client; document this choice
-GEMINI_API_KEY=
-GEMINI_MODEL=gemini-2.5-flash
+OPENROUTER_API_KEY=
+OPENROUTER_MODELS=nvidia/nemotron-3.5-lightning:free,baidu/ernie-5.5-flash-preview:free,google/gemma-4-31b-it:free   # comma-separated fallback list
 BUSINESS_TIMEZONE=Asia/Dhaka
 BUSINESS_OPEN_HOUR=9
 BUSINESS_CLOSE_HOUR=18
@@ -236,7 +236,7 @@ For every endpoint cover at least:
   - users: cannot change email, update only allowed fields, (optional) change password with wrong current password
   - services: search (case-insensitive), category filter, featured filter, price range, pagination meta, inactive services hidden, categories list, availability marks booked/past/overflowing slots as unavailable
   - appointments: create success returns PENDING; past time, off-grid time, outside business hours, inactive service; double booking returns 409; two simultaneous requests for the same slot result in exactly one success (proves the DB-level constraint); a cancelled booking frees the slot; cancel only PENDING (CONFIRMED/COMPLETED/CANCELLED return 409); upcoming vs past filtering; status filter
-  - ai: success with the Gemini call MOCKED (stub global `fetch`; never call the real API or use the real key in tests), message too long, history trimmed, provider failure/timeout returns a friendly 502/503, requires auth
+  - ai: success with the OpenRouter call MOCKED (stub global `fetch`; never call the real API or use the real key in tests), message too long, history trimmed, provider failure/timeout returns a friendly 502/503, requires auth
 - error shape: every error response matches `{ success: false, message, errors? }`; unknown routes return 404 in the same shape.
 
 ## API documentation (docs/API.md) — written for the FRONTEND developer

@@ -1,6 +1,6 @@
 # EasyBook API: Frontend Guide
 
-> **Status:** health, auth, profile, services and appointments endpoints are live. The AI assistant endpoint is added in Step 8.
+> **Status:** every endpoint is live: health, auth, profile, services, appointments and the AI assistant. (Optional change-password is planned for Step 9.)
 > Anything marked _(coming in Step N)_ is not built yet, so don't code against it until it appears in the [Changelog](#12-changelog).
 
 ---
@@ -178,7 +178,7 @@ Send `?page=1&limit=20`. The default is page 1 with 20 items, and `limit` can be
 | 422 | Validation failed | Show each `errors[].message` under its `field` |
 | 429 | Too many requests | Show `message` and ask the user to wait |
 | 500 | Unexpected server error | Show "Something went wrong" and offer a retry |
-| 502 / 503 | AI assistant unavailable or timed out _(Step 8)_ | Show `message` and offer a retry |
+| 502 / 503 | AI assistant unavailable, busy or timed out | Show `message` in the chat and offer a retry |
 
 Real examples:
 
@@ -1048,7 +1048,128 @@ Cancels a booking. **Only `PENDING` bookings can be cancelled.** Cancelling free
 
 ---
 
-_The AI assistant endpoint is added in Step 8._
+### POST /ai/chat
+
+Asks the EasyBook AI assistant a question about services. It recommends services that fit the user's needs and answers basic questions (price, duration, what a service includes, how to book).
+
+**Auth required:** Yes (rate limited: **10 messages per minute**)
+
+How it works:
+- On every request, the server loads the current active services from the database and gives them to the AI. Answers always match the real catalogue and prices.
+- Off-topic questions are politely declined.
+- The AI provider and its API key live **only on the server**. The app never talks to the AI provider directly.
+- The server keeps no chat history. To keep a conversation going, the app sends the earlier messages in `history`.
+
+**Body**
+
+| Field | Type | Required | Rules / example |
+|---|---|---|---|
+| `message` | string | Yes | 1–500 characters, trimmed. `"I have a stiff back after long hours at my desk. What would you recommend?"` |
+| `history` | array | No | Earlier turns, **oldest first**, up to 50 items. Only the **last 10** are used. Each item is `{ "role": "user" \| "assistant", "content": string (1–500 chars) }` |
+
+**Success: 200**
+
+```json
+{
+  "success": true,
+  "data": {
+    "reply": "For a stiff back from desk work, I recommend the Full Body Massage. It’s a 60‑minute Swedish massage that releases tension and improves circulation, perfect for easing muscle stiffness. The price is 3,000 BDT.",
+    "suggestedServices": [
+      { "id": "5e000000-0000-4000-8000-000000000004", "name": "Full Body Massage" }
+    ]
+  }
+}
+```
+
+- `reply` is plain text.
+- `suggestedServices` lists the services named in the reply, in order. It is **always an array** and can be empty, as here for an off-topic question:
+
+```json
+{
+  "success": true,
+  "data": {
+    "reply": "I can't answer that question, but I can help you book services like a haircut, massage, or home cleaning in the EasyBook app. What would you like to do?",
+    "suggestedServices": []
+  }
+}
+```
+
+A follow-up message, with `history` set to the earlier user and assistant messages:
+
+```json
+// request body
+{
+  "message": "Anything cheaper?",
+  "history": [
+    { "role": "user", "content": "I have a stiff back after long hours at my desk. What would you recommend?" },
+    { "role": "assistant", "content": "A Full Body Massage would help. It is a 60-minute Swedish massage and costs 3000.00 BDT." }
+  ]
+}
+// response
+{
+  "success": true,
+  "data": {
+    "reply": "A General Health Check-up costs 2000.00 BDT and takes 30 minutes, but it is not a massage.",
+    "suggestedServices": [{ "id": "5e000000-0000-4000-8000-000000000010", "name": "General Health Check-up" }]
+  }
+}
+```
+
+The AI's wording varies from call to call. Only the response **shape** is guaranteed.
+
+**Errors**
+
+| Status | `message` | When |
+|---|---|---|
+| 503 | `The assistant took too long to answer. Please try again.` | The AI didn't answer within 15 seconds |
+| 503 | `The assistant is busy right now. Please try again in a minute.` | The AI provider is rate-limited |
+| 503 | `The assistant is not available at the moment.` | The assistant is switched off on the server |
+| 502 | `The assistant is unavailable right now. Please try again in a moment.` | The provider failed or sent an empty answer |
+| 429 | `You are sending messages too quickly. Please wait a minute and try again.` | More than 10 messages in a minute |
+
+502/503 bodies never contain provider details:
+```json
+{ "success": false, "message": "The assistant is unavailable right now. Please try again in a moment." }
+```
+
+422: invalid message or history:
+```json
+{ "success": false, "message": "Validation failed", "errors": [{ "field": "history.0.role", "message": "role must be \"user\" or \"assistant\"" }] }
+```
+
+Other 422 messages: `"Message must be at most 500 characters"` (field `message` or `history.N.content`), `"Message cannot be empty"`, and `"history can have at most 50 messages"`.
+
+401: see [Authentication](#4-authentication).
+
+**Tested scenarios** (the AI provider is mocked in every test)
+- [x] returns the assistant's reply and the services it mentioned
+- [x] sends the active services with price and duration to the provider, and never inactive ones
+- [x] sends only the last 10 history messages, in order, before the new message
+- [x] removes Markdown bold markers so the reply is plain text
+- [x] returns an empty suggestedServices list when no service is named
+- [x] passes an abort signal so a slow provider is cut off
+- [x] returns 503 with a friendly message when the provider times out
+- [x] returns 502 with a friendly message and no provider details when the provider fails
+- [x] returns 503 when the provider is rate-limited
+- [x] returns 502 when the provider cannot be reached or sends an empty answer
+- [x] returns 503 without calling the provider when no API key is configured
+- [x] returns 422 when the message is longer than 500 characters
+- [x] returns 422 when the message is missing or empty
+- [x] returns 422 when a history item has an invalid role or too much content
+- [x] returns 422 when history has more than 50 messages
+- [x] returns 401 when no token is sent
+- [x] returns 401 when the token is malformed
+- [x] returns 401 when the token is expired
+
+**Frontend notes:**
+- Keep the conversation in app state and send the previous turns as `history` (oldest first). Sending only the last 10 is enough.
+- Show a "typing…" indicator. Replies usually take 1–3 seconds, so set the client timeout to **at least 20 seconds**.
+- Show `suggestedServices` as tappable chips under the reply, each opening `GET /services/:id`.
+- Limit the text field to 500 characters.
+- On 502, 503 or 429, show `message` as a system bubble with a Retry button.
+
+---
+
 
 ---
 
@@ -1095,10 +1216,12 @@ The seed also creates **10 services in 4 categories** (Hair & Beauty, Wellness, 
 | GET /appointments | 9 | ✅ passing |
 | GET /appointments/:id | 6 | ✅ passing |
 | PATCH /appointments/:id/cancel | 8 | ✅ passing |
-| **Total** | **132** | ✅ **all passing** |
+| POST /ai/chat | 18 | ✅ passing |
+| **Total** | **150** | ✅ **all passing** |
 
 ## 12. Changelog
 
+- **2026-11-16:** Added `POST /ai/chat`, the AI service assistant. It runs on OpenRouter free models, with the key kept on the server.
 - **2026-11-16:** Added `POST /appointments`, `GET /appointments`, `GET /appointments/:id` and `PATCH /appointments/:id/cancel`. Availability and booking now share the same rules, so a slot shown as available can always be booked unless someone takes it first.
 - **2026-11-16:** Added `GET /services`, `GET /services/categories`, `GET /services/:id` and `GET /services/:id/availability`.
 - **2026-11-16:** Added `POST /auth/register`, `POST /auth/login`, `GET /users/me` and `PATCH /users/me`. Unknown body fields now return 422 with `"This field is not allowed"`.
