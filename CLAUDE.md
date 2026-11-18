@@ -1,9 +1,9 @@
 # EasyBook API (Backend)
 
 ## Project context
-Backend for EasyBook, a Flutter service-booking mobile app (72-hour technical assessment).
-Requirements: ./Flutter_Technical_Assessment_.pdf (sections 3, 4, 5 and Submission Requirements).
-The developer will be interviewed on this code, so keep it simple, readable, and explainable.
+Backend for EasyBook, a Flutter service-booking mobile app.
+Flutter app: https://github.com/shaadsajjad/easybook-app
+Keep the code simple, readable, and explainable.
 After finishing each step, summarize what was built and why. Do not build ahead of the step requested.
 Use the name "EasyBook" in the README, API docs and the AI assistant's system prompt.
 
