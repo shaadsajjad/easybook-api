@@ -10,6 +10,9 @@
 EasyBook is a mobile app for booking local services, such as a haircut, a massage or a home cleaning.
 This API handles accounts, the service catalogue, available time slots, appointments, and an AI assistant that recommends services.
 
+- Flutter app: [shaadsajjad/easybook-app](https://github.com/shaadsajjad/easybook-app)
+- Backend (this API): [shaadsajjad/easybook-api](https://github.com/shaadsajjad/easybook-api)
+
 ---
 
 ## 2. Base URLs
